@@ -52,12 +52,12 @@ async function run() {
             res.send({ token });
         })
 
-        const verifyAdmin = async(req, res, next) => {
+        const verifyAdmin = async (req, res, next) => {
             const email = req.decoded.email;
             const query = { email: email }
             const user = await usersCollection.findOne(query);
-            if(user?.role !== 'admin'){
-                return res.status(403).send({error: true, message: 'forbidden access'})
+            if (user?.role !== 'admin') {
+                return res.status(403).send({ error: true, message: 'forbidden access' })
             }
             next();
         }
@@ -153,6 +153,19 @@ async function run() {
             const id = req.params.id;
             const query = { course_id: id };
             const result = await allCoursesCollection.findOne(query);
+            res.send(result);
+        })
+
+        app.post('/allCourses', verifyJWT, verifyAdmin, async (req, res) => {
+            const newCourse = req.body;
+            const result = await allCoursesCollection.insertOne(newCourse);
+            res.send(result);
+        })
+
+        app.delete('/allCourses/:id', verifyJWT, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await allCoursesCollection.deleteOne(query);
             res.send(result);
         })
 
