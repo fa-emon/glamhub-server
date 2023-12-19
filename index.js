@@ -1,9 +1,10 @@
 const express = require('express')
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express()
 const jwt = require('jsonwebtoken');
 const cors = require('cors')
 require('dotenv').config()
+const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY);
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT || 5000;
 
 // middleware 
@@ -44,6 +45,7 @@ async function run() {
         const usersCollection = client.db('glamHub').collection('users');
         const allCoursesCollection = client.db('glamHub').collection('allCourses');
         const cartCollection = client.db('glamHub').collection('carts');
+        const paymentCollection = client.db('glamHub').collection('payments');
 
 
         app.post('/jwt', (req, res) => {
@@ -212,6 +214,37 @@ async function run() {
             const result = await cartCollection.deleteOne(query);
             res.send(result);
         })
+
+        /* {-----------payment apis-----------} */
+
+        app.post('/create-payment-intent', verifyJWT, async (req, res) => {
+            const { price } = req.body;
+            const amount = price * 100;
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: "usd",
+                payment_method_types: [
+                    "card"
+                ],
+            });
+
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+        })
+
+
+        app.post('/payments', verifyJWT, async (req, res) => {
+            const payment = req.body;
+            const insertResult = await paymentCollection.insertOne(payment);
+
+            const query = { _id: { $in: payment.cart.map(id => new ObjectId(id)) } }
+            const deleteResult = await cartCollection.deleteMany(query);
+
+            res.send({ insertResult, deleteResult });
+        })
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
