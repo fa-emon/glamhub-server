@@ -133,6 +133,41 @@ async function run() {
             res.send(result);
         })
 
+        app.get('/user-statistics/:email', verifyJWT, async (req, res) => {
+            const email = req.params.email;
+
+            if (req.decoded.email !== email) {
+                return res.status(401).send({ message: 'unauthorized access!' });
+            }
+
+            try {
+                const payments = await paymentCollection.find({ email: email }).toArray();
+
+                // Calculate course using Array.reduce and forEach
+                const courseCounts = payments.reduce((acc, payment) => {
+                    payment.coursesName.forEach(courseName => acc[courseName] = (acc[courseName] || 0) + 1);
+                    return acc;
+                }, {});
+
+                // Calculate total revenue
+                const totalRevenue = payments.reduce((sum, item) => sum + item.price, 0).toFixed(2);
+
+                // Calculate ordered course
+                const orderedCourse = Object.values(courseCounts).reduce((sum, count) => sum + count, 0);
+
+                // Calculate total course 
+                const totalCourses = await allCoursesCollection.countDocuments();
+
+                res.send({
+                    totalRevenue,
+                    totalCourses,
+                    orderedCourse
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: 'Internal Server Error' });
+            }
+        });
 
         /* {-----------allCourses Collection-----------} */
 
@@ -158,9 +193,40 @@ async function run() {
             res.send(result);
         })
 
+        app.get('/updateCourse/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await allCoursesCollection.findOne(query);
+            res.send(result);
+        })
+
         app.post('/allCourses', verifyJWT, verifyAdmin, async (req, res) => {
             const newCourse = req.body;
             const result = await allCoursesCollection.insertOne(newCourse);
+            res.send(result);
+        })
+
+        app.patch('/updateCourse/:id', async (req, res) => {
+            const courseData = req.body;
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const updateDoc = {
+                $set: {
+                    name: courseData.name,
+                    image: courseData.image,
+                    price: courseData.price,
+                    ratings: courseData.ratings,
+                    category: courseData.category,
+                    instructor_name: courseData.instructor_name,
+                    instructor_image: courseData.instructor_image,
+                    instructor_email: courseData.instructor_email,
+                    short_description: courseData.short_description,
+                    available_seats: courseData.available_seats,
+                    students_enrolled: courseData.students_enrolled
+                }
+            }
+
+            const result = await allCoursesCollection.updateOne(query, updateDoc);
             res.send(result);
         })
 
@@ -202,6 +268,33 @@ async function run() {
             res.send(result);
         })
 
+        //using aggregate pipeline
+        app.get('/bookingHistory/:email', async (req, res) => {
+            const email = req.params.email;
+            try {
+                const result = await paymentCollection.aggregate([
+                    { $match: { email } },
+                    { $unwind: '$coursesName' },
+                    {
+                        $lookup: {
+                            from: 'allCourses',
+                            localField: 'coursesName',
+                            foreignField: 'name',
+                            as: 'detailedCourses'
+                        }
+                    },
+                    {
+                        $unwind: '$detailedCourses'
+                    },
+                ]).toArray();
+
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ error: true, message: 'Internal Server Error' });
+            }
+        });
+
         app.post('/carts', async (req, res) => {
             const item = req.body;
             const result = await cartCollection.insertOne(item);
@@ -234,6 +327,16 @@ async function run() {
             });
         })
 
+        app.get('/paymentHistory/:email', verifyJWT, async (req, res) => {
+            const email = req.params.email;
+            if (req.decoded.email != email) {
+                return res.status(403).send({ message: 'forbidden access.' })
+            }
+
+            const query = { email: email }
+            const result = await paymentCollection.find(query).toArray();
+            res.send(result);
+        })
 
         app.post('/payments', verifyJWT, async (req, res) => {
             const payment = req.body;
@@ -254,16 +357,17 @@ async function run() {
             const orders = await paymentCollection.estimatedDocumentCount();
             const payments = await paymentCollection.find().toArray();
             const revenue = payments.reduce((accumulator, currentValue) => accumulator + currentValue.price, 0);
+            const finalRevenue = revenue.toFixed(2);
 
             res.send({
                 users,
                 allCourses,
                 orders,
-                revenue
+                finalRevenue
             })
         })
 
-        
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
